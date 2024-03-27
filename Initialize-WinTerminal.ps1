@@ -252,6 +252,10 @@ $termRepo = "Microsoft/Terminal"
 $termPRHint = "PreinstallKit"
 $termPRFile = "term-pr.zip"
 
+# VCLibs Desktop is required by winget
+$vclibsURL = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
+$vclibsFile = "vclibs.zip"
+
 # winget repro and file extension
 $wingetRepo = "microsoft/winget-cli"
 $wingetExt = "msixbundle"
@@ -377,15 +381,12 @@ if ( -NOT $wtFnd ) {
         # unzip
         Expand-Archive $prFile -DestinationPath "$savePath\term-pr" -Force -EA Stop
 
-        # install VCLibs first
-        Write-Verbose "Installing VCLibs."
-        $vclibFile = Get-ChildItem "$savePath\term-pr" -Filter "*VCLib*x64*.appx"
-        Add-AppxPackage $vclibFile -EA Stop
-
-        # install XAML next
+        # install any x64 appx package in the pre-req kit
         Write-Verbose "Installing XAML."
-        $xamlFile = Get-ChildItem "$savePath\term-pr" -Filter "*XAML*x64*.appx"
-        Add-AppxPackage $xamlFile -EA Stop
+        [array]$appxFiles = Get-ChildItem "$savePath\term-pr" -Filter "*x64*.appx"
+        foreach ($ax in $appxFiles) {
+            Add-AppxPackage $ax -EA Stop
+        }
     } catch {
         return (Write-Error "Pre-requrisite install failed: $_" -EA Stop)
     }
@@ -417,6 +418,10 @@ if ( -NOT $wingetFnd ) {
     ## download and install winget from github ##
     try 
     {
+        # install VCLibs firs
+        $libFile = Get-WebFile -URI $vclibsURL -savePath $savePath -fileName $vclibsFile -EA Stop
+        Add-AppxPackage "$libFile" -EA Stop
+        
         Write-Verbose "Check GitHub for latest winget package."
         $release = Find-GitRelease $wingetRepo -Latest
         $fileName = "$(($wingetRepo -split '/')[-1])`.$wingetExt"
