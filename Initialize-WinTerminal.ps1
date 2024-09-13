@@ -35,7 +35,10 @@ if ($WSL.IsPresent) { Write-Verbose "WSL mode engaged." }
 ### FUNCTIONS ###
 #region
 
-# FUNCTION: Find-GitRelease
+# load the common functions
+. "$PSScriptRoot\lib\libFunc.ps1"
+
+<# FUNCTION: Find-GitRelease
 # PURPOSE:  Calls Github API to retrieve details about the latest release. Returns a PSCustomObject with repro, version (tag_name), and download URL.
 function Find-GitRelease {
     [CmdletBinding()]
@@ -121,43 +124,8 @@ function Find-GitRelease {
     Write-Verbose "Find-GitRelease - End"
     return $releases
 } #end Find-GitRelease
+#>
 
-# FUNCTION: Get-WebFile
-# PURPOSE:  
-function Get-WebFile {
-    [CmdletBinding()]
-    param ( 
-        [string]$URI,
-        [string]$savePath,
-        [string]$fileName
-    )
-
-    Write-Verbose "Get-WebFile - Begin"
-    Write-Verbose "Get-WebFile - Attempting to download: $URI"
-
-    # make sure we don't try to use an insecure SSL/TLS protocol when downloading files
-    $secureProtocols = @() 
-    $insecureProtocols = @( [System.Net.SecurityProtocolType]::SystemDefault, 
-                            [System.Net.SecurityProtocolType]::Ssl3, 
-                            [System.Net.SecurityProtocolType]::Tls, 
-                            [System.Net.SecurityProtocolType]::Tls11) 
-    foreach ($protocol in [System.Enum]::GetValues([System.Net.SecurityProtocolType])) { 
-        if ($insecureProtocols -notcontains $protocol) { 
-            $secureProtocols += $protocol 
-        } 
-    } 
-    [System.Net.ServicePointManager]::SecurityProtocol = $secureProtocols
-
-    try {
-        Invoke-WebRequest -Uri $URI -OutFile "$savePath\$fileName"
-    } catch {
-        return (Write-Error "Could not download $URI`: $($Error[0].ToString())" -EA Stop)
-    }
-
-    Write-Verbose "Get-WebFile - File saved to: $savePath\$fileName"
-    Write-Verbose "Get-WebFile - End"
-    return "$savePath\$fileName"
-} #end Get-WebFile
 
 function Install-FromGithub {
     [CmdletBinding()]
@@ -195,7 +163,7 @@ function Install-FromGithub {
     }
 
     try {
-        $installFile = Get-WebFile -URI $URL -savePath $savePath -fileName $fileName -EA Stop
+        $installFile = Get-WebFile -URI $URL -Path $savePath -FileName $fileName -EA Stop
         
         if ($extension -in  $appxExt) {
             Add-AppxPackage $installFile -EA Stop
@@ -210,9 +178,15 @@ function Install-FromGithub {
 }
 
 function Get-InstalledFonts {
-    [void] [System.Reflection.Assembly]::LoadWithPartialName("System.Drawing")
-    return ((New-Object System.Drawing.Text.InstalledFontCollection).Families)
+    # load the assembly 
+    if ( -NOT ([appdomain]::currentdomain.getassemblies() | Where-Object {$_ -match "System.Drawing"})) {
+        Add-Type -AssemblyName System.Drawing
+    }
+
+    return ((New-Object System.Drawing.Text.InstalledFontCollection).Families.Name)
 }
+
+
 
 function Install-Font {
     [CmdletBinding()]
@@ -221,16 +195,59 @@ function Install-Font {
         $Path
     )
 
+    # load the assembly 
+    if ( -NOT ([appdomain]::currentdomain.getassemblies() | Where-Object {$_ -match "System.Drawing"})) {
+        Add-Type -AssemblyName System.Drawing
+    }
+
+    # font directory
+    $fontDir = [System.Environment]::GetFolderPath("Fonts")
+    #$fontReg = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+
+    # create a font collection to read the font family name later on
+    $FontCollection = [System.Drawing.Text.PrivateFontCollection]::new()
+
+    # get a list of installed font families
+    $installedFonts = Get-InstalledFonts
+
+    # get a list of installed ttf and otf fonts
+    $installedFontFiles = Get-ChildItem -Path $fontDir -Include *.otf, *.ttf -File
+    
+    # stuff needed for CopyHere method
     $FONTS = 0x14
-    $CopyOptions = 4 + 16;
+    $CopyOptions = 4 + 16 + 1024
     $objShell = New-Object -ComObject Shell.Application
     $objFolder = $objShell.Namespace($FONTS)
 
-    foreach ($font in $Path) {
-        $CopyFlag = [String]::Format("{0:x}", $CopyOptions);
-        $objFolder.CopyHere($font.fullname,$CopyFlag)
+    # get the fonts from the path
+    # remove duplication, preferring OTF over TTF fonts
+    [System.Collections.Generic.List[Object]]$fonts = Get-ChildItem -Path $Path -Include *.otf -Recurse -File
+    Get-ChildItem -Path $Path -Include *.ttf -Recurse -File | & {process {
+        if ($_.BaseName -notin $fonts.BaseName) {
+            $fonts.Add($_)
+        }
+    }}
+
+    foreach ($font in $fonts) {
+        # get font details
+        $null = $FontCollection.AddFontFile($font.fullname)
+        $currentFont = $FontCollection.Families[-1].Name
+        Write-Verbose "Processing: $currentFont"
+        #Write-Verbose "FontCollection:$($c=0; $FontCollection.Families | % {"`n$c`t: $($_.Name)"; $c++})"
+        
+        # use a standard copy to update the existing font if it already exists
+        if ($currentFont -in $installedFonts -or $font.Name -in $installedFontFiles.Name) {
+            Write-Verbose "Updating font."
+            $null = Copy-Item -Path $font -Destination $fontDir -Force -Confirm:$false
+        # use CopyHere if the font is not found
+        } else {
+            Write-Verbose "Installing font."
+            $CopyFlag = [String]::Format("{0:x}", $CopyOptions);
+            $objFolder.CopyHere($font.fullname,$CopyFlag)
+        }
     }
 }
+
 
 #endregion FUNCTIONS
 
@@ -241,37 +258,40 @@ function Install-Font {
 $savePath = "C:\Temp"
 
 # list of exact winget app IDs to install
-[array]$wingetApps = "JanDeDobbeleer.OhMyPosh", "WiresharkFoundation.Wireshark", "Microsoft.VisualStudioCode", "Git.Git"
+[array]$wingetApps = "Microsoft.PowerShell", 
+                        "Microsoft.WindowsTerminal", 
+                        "Microsoft.VisualStudioCode", 
+                        "JanDeDobbeleer.OhMyPosh", 
+                        "WiresharkFoundation.Wireshark", 
+                        "Git.Git"
 
-# powershell repro and file extension
-$pwshRepo = "PowerShell/PowerShell"
-$pwshExt = "msi"
+# powershell repro and file extension, installed by winget now
+#$pwshRepoOwner = "PowerShell"
+#$pwshRepo = "PowerShell"
+#$pwshExt = "msi"
 
-# Windows Terminal details
-$termRepo = "Microsoft/Terminal"
-$termPRHint = "PreinstallKit"
-$termPRFile = "term-pr.zip"
+# Windows Terminal details - installed by winget
+#$termRepoOwner = "Microsoft"
+#$termRepo = "Terminal"
+#$termPRHint = "PreinstallKit"
+#$termPRFile = "term-pr.zip"
 
-# VCLibs Desktop is required by winget
-$vclibsURL = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
-$vclibsFile = "vclibs.zip"
-
-# winget repro and file extension
-$wingetRepo = "microsoft/winget-cli"
-$wingetExt = "msixbundle"
+# VCLibs Desktop, XAML, and winget are installed by Update-WingetApps
 
 # repro for Caskaydia Cove Nerd Font
-$repoCCNF = "ryanoasis/nerd-fonts"
+$repoCCNFOwner = "microsoft"
+$repoCCNFRepo = "cascadia-code"
 
 # name of the preferred pretty font, CaskaydiaCove NF
-$fontName = "CaskaydiaCove Nerd Font"
+$fontName = "Cascadia Mono NF SemiLight"
 
 # the zip file where CC NF is in
-$fontFile = "CascadiaCode.zip"
+$fontVer = Find-GitHubLatestVersion -Owner $repoCCNFOwner -Repo $repoCCNFRepo
+$fontFile = "CascadiaCode-$($fontVer.Major).$($fontVer.Minor).zip"
 
 # npcap URL
 # Wireshark required npcap
-$npcapURL = 'https://npcap.com/dist/npcap-1.75.exe'
+$npcapURL = 'https://npcap.com/dist/npcap-1.79.exe'
 
 
 
@@ -302,7 +322,7 @@ if ($gDemo.IsPresent) {
     Write-Verbose "Normal presets are being used."
     # list of commands to add to the PowerShell profile
     [string[]]$profileLines = 'Import-Module -Name Terminal-Icons',
-                              'oh-my-posh --init --shell pwsh --config $env:POSH_THEMES_PATH/tokyo.omp.json | Invoke-Expression',
+                              'oh-my-posh --init --shell pwsh --config $env:POSH_THEMES_PATH/rudolfs-dark.omp.json | Invoke-Expression',
                               'cls'
 
     # PowerShell modules to install                              
@@ -336,138 +356,19 @@ if ( $rawOS.Version.Build -lt 19041 ) {
 Write-Verbose "Create savePath: $savePath"
 $null = mkdir $savePath -EA SilentlyContinue
 
-
-## install newest pwsh release ##
-$pwshFnd = Get-Command pwsh -EA SilentlyContinue
-[version]$pwshVer = Find-GitRelease -Repo $pwshRepo -Latest | ForEach-Object { $_.Version.TrimStart('v') }
-
-if ( -NOT $pwshFnd -or $pwshVer -gt $pwshFnd.Version ) {
-    try
-    {
-        Write-Verbose "Installing the newest release of PowerShell."
-        Install-FromGithub -repo $pwshRepo -extension $pwshExt -savePath $savePath
-        Write-Verbose "PowerShell install complete."
-    }
-    catch
-    {
-        return (Write-Error "Failed to download or install PowerShell 7+: $_" -EA Stop)
-    }
-} else {
-    Write-Verbose "PowerShell is already installed"
-}
-
-if ($gDemo.IsPresent) { Write-Debug "Demo mode engaged. (3)" }
-
-# install Windows Terminal
-# this step is only needed for pre-Win11, less than Win10 19041 is covered above.
-# install if wt.exe is not found
-$wtFnd = Get-Command wt -EA SilentlyContinue
-if ( -NOT $wtFnd ) {
-    Write-Verbose "Installing Windows Terminal."
-    ## install pre-req's ##
-    Write-Verbose "Installing terminal pre-requesites."
-    # the pre-req's are packages as part of Windows Terminal
-    try {
-        # get the pre-req url
-        Write-Verbose "Get the URL to the pre-req file."
-        $preReq = Find-GitRelease $termRepo -Latest -EA Stop
-        $prURL = $preReq.URL.split(" ").Trim(" ") | Where-Object { $_ -match $termPRHint }
-        Write-Verbose "URL: $prURL"
-
-        # download the file
-        $prFile = Get-WebFile -URI $prURL -savePath $savePath -fileName $termPRFile -EA Stop
-        Write-Verbose "Downloaded to: $prFile"
-
-        # unzip
-        Expand-Archive $prFile -DestinationPath "$savePath\term-pr" -Force -EA Stop
-
-        # install any x64 appx package in the pre-req kit
-        Write-Verbose "Installing XAML."
-        [array]$appxFiles = Get-ChildItem "$savePath\term-pr" -Filter "*x64*.appx"
-        foreach ($ax in $appxFiles) {
-            Add-AppxPackage $ax -EA Stop
-        }
-    } catch {
-        return (Write-Error "Pre-requrisite install failed: $_" -EA Stop)
-    }
-
-    ## install Windows Terminal ##
-    Write-Verbose "Getting Windows Terminal URL."
-    $termBundles = Find-GitRelease $termRepo | Where-Object { $_.Name -notmatch "Preview"} | Sort-Object -Property Version -Descending
-    $termURL = $termBundles[0].URL.Split(" ").Trim(" ") | Where-Object {$_ -match '^*.msixbundle$'}
-
-    try 
-    {
-        Write-Verbose "Installing Windows Terminal."
-        $termFile = Get-WebFile -URI $termURL -savePath $savePath -fileName "terminal.msixbundle" -EA Stop
-        Add-AppxPackage "$termFile" -EA Stop
-    }
-    catch 
-    {
-        return (Write-Error "Failed to download or install Windows Terminal: $_" -EA Stop)
-    }
-}
-
-if ($gDemo.IsPresent) { Write-Debug "Demo mode engaged. (4)" }
-
-# install winget if it is not installed
-$wingetFnd = Get-Command winget -EA SilentlyContinue
-
-if ( -NOT $wingetFnd ) {
+# install or update winget and its dependencies
+try {
     Write-Verbose "Installing winget."
-    ## download and install winget from github ##
-    try 
-    {
-        # install VCLibs firs
-        $libFile = Get-WebFile -URI $vclibsURL -savePath $savePath -fileName $vclibsFile -EA Stop
-        Add-AppxPackage "$libFile" -EA Stop
-        
-        Write-Verbose "Check GitHub for latest winget package."
-        $release = Find-GitRelease $wingetRepo -Latest
-        $fileName = "$(($wingetRepo -split '/')[-1])`.$wingetExt"
-
-        # find the URL
-        $URL = $release.URL.Split(" ").Trim(" ") | Where-Object { $_ -match "^.*.$wingetExt$" }
-        Write-Verbose "Winget URL: $URL"
-
-        $installFile = Get-WebFile -URI $URL -savePath $savePath -fileName $fileName -EA Stop
-        Write-Verbose "Winget installer saved to: $installFile"
-
-        Write-Verbose "Get winget license file."
-        $URL2 = $release.URL.Split(" ").Trim(" ") | Where-Object { $_ -match "^.*.xml$" }
-        $fileName2 = Split-Path $url2 -Leaf
-
-        $licenseFile = Get-WebFile -URI $URL2 -savePath $savePath -fileName $fileName2 -EA Stop
-
-        Write-Verbose "Install winget."
-        Add-AppxProvisionedPackage -Online -PackagePath $installFile -LicensePath $licenseFile -Verbose -EA Stop
-    }
-    catch
-    {
-        return (Write-Error "Winget download failed: $_" -EA Stop)
-    }
-
-    # wait for winget to appear in the path
-    Write-Verbose "Wait for winget to show up."
-    $count = 0
-    do
-    {
-        Start-Sleep 1
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") 
-        $wingetFnd = Get-Command winget -EA SilentlyContinue
-        
-        # 2022-09-23 - Using Add-AppxPackage seems to work with winget on WS2022, so try that is Add-AppxProvisionedPackage didn't see to work
-        if ($count -gt 0 -and -NOT $wingetFnd)
-        {
-            Write-Verbose "Attempting a second install of winget"
-            Add-AppxPackage $installFile
-        }
-        
-        $count++
-    } until ($wingetFnd -or $count -ge 10)
+    Push-Location "$PSScriptRoot" 
+    .\Update-WingetApps.ps1 -updatePath $savePath -EA Stop
+} catch {  
+    throw "Failed to install Winget: $_"
+} finally {
+    Pop-Location
 }
 
 ## install winget apps ##
+$wingetFnd = Get-Command winget -EA SilentlyContinue
 if ($wingetFnd)
 {
     Write-Verbose "Winget is installed."
@@ -481,21 +382,6 @@ if ($wingetFnd)
 
     # pwsh doesn't always install the first time. test and retry
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") 
-    $isPwshFnd = Get-Command pwsh -EA SilentlyContinue
-
-    if (-NOT $isPwshFnd)
-    {
-        Write-Verbose "Attempting a winget install of PowerShell 7."
-        winget install microsoft.powershell
-
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") 
-        $isPwshFnd = Get-Command pwsh -EA SilentlyContinue
-        if (-NOT $isPwshFnd)
-        {
-            return (Write-Error "PowerShell 7+ installation failed. Please install manually and try again." -EA Stop)
-        }
-
-    }
 }
 else
 {
@@ -509,38 +395,28 @@ if ($gDemo.IsPresent) { Write-Debug "Demo mode engaged. (5)" }
 if ($fontName -notin (Get-InstalledFonts))
 {
     Write-Verbose "Installing $fontName"
-    # get newest font
-    $ccnf = Find-GitRelease -repo $repoCCNF -Latest
-
-    # find the correct URL
-    $ccnfURL = $ccnf.URL.Split(" ").Trim(" ") | Where-Object {$_ -match $fontFile}
-
     # download
-    try 
-    {
-        $ccnfZip = Get-WebFile -URI $ccnfURL -savePath $savePath -fileName $fontFile
-    }
-    catch 
-    {
+    try {
+        $ccnfZip = Get-LatestGitHubRelease -Owner $repoCCNFOwner -Repo $repoCCNFRepo -File $fontFile -Path $savePath -EA Stop
+        
+        # extract
+        $extractPath = "$savePath\ccnf"
+        Expand-Archive -Path $ccnfZip -DestinationPath $extractPath -Force -EA Stop
+
+        # install fonts
+        Install-Font "$extractPath" -EA Stop
+
+        #Start-Sleep 10
+    } catch {
         Write-Error "Failed to download $fontFile. Please download and install $fontName manually, or the Nerd Font of your choice."
     }
-    
-    # extract
-    $extractPath = "$savePath\ccnf"
-    Expand-Archive -Path $ccnfZip -DestinationPath $extractPath -Force
-
-    # install fonts
-    # 2022-09-23 - Added search for OTF files, as TTF support seems to be waning.
-    Install-Font (Get-ChildItem "$extractPath" -EA SilentlyContinue | Where-Object Extension -match '\.otf|\.ttf')
-
-    Start-Sleep 30
 }
 
 ## install modules ##
 
 $strCMD = @"
     `$nugetVer = Get-PackageProvider -ListAvailable -EA SilentlyContinue | Where-Object Name -match "NuGet" | ForEach-Object { `$_.Version }
-    [version]`$minNugetVer = "2.8.5.208"
+    [version]`$minNugetVer = "3.0.0.1"
     if (`$nugetVer -lt `$minNugetVer -or `$null -eq `$nugetVer)
     {
         Write-Verbose "Installing NuGet update."
@@ -551,6 +427,7 @@ $strCMD = @"
     Install-Module -Name "$($pwshMods -join '","')" -Repository PSGallery -Scope CurrentUser -Force
 "@
 
+# do not encode the command as it gives some endpoint protect services a conniption fit
 [scriptblock]$cmd = [scriptblock]::Create($strCMD)
 
 # update $env:Path so pwsh will be found
@@ -715,7 +592,7 @@ if ($gDemo.IsPresent) { Write-Debug "Demo mode engaged. (11)" }
 try 
 {
     Write-Verbose "Install npcap."
-    $npcapFile = Get-WebFile -URI $npcapURL -savePath $savePath -fileName npcap.exe
+    $npcapFile = Get-WebFile -URI $npcapURL -Path $savePath -FileName npcap.exe
     Start-Process "$savePath\npcap.exe" -ArgumentList "/winpcap_mode=disabled" -Wait
 
     $null = Remove-Item $npcapFile -Force
@@ -739,5 +616,5 @@ if ($gDemo.IsPresent) {
 
 # update and reboot
 Install-PackageProvider -Name NuGet -Force
-Install-Module -Name PSWindowsUpdate -MinimumVersion 2.2.0 -Force
+Install-Module -Name PSWindowsUpdate -MinimumVersion 2.2.1.4 -Force
 Get-WindowsUpdate -AcceptAll -Verbose -WindowsUpdate -Install -AutoReboot
