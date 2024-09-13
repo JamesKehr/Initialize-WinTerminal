@@ -138,8 +138,9 @@ if ( [string]::IsNullOrEmpty($PSScriptRoot) ) {
 Write-Verbose "scriptPath: $scriptPath"
 
 # make sure all the required files are present and try to download anything missing
-$fileList = Get-WebFile -URI 'https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/file.json' -Path "$PSScriptRoot" -FileName 'file.json'
-[array]$reqFiles = Get-Content $fileList | ConvertFrom-Json
+[array]$reqFiles = Invoke-WebRequest 'https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/file.json' | ForEach-Object Content | ConvertFrom-Json
+
+# loop through each required file
 foreach ($rf in $reqFiles) {
     # convert to hashtable
     $htRF = $rf.PSObject.Properties | ForEach-Object -Begin {$h = @{}} -Process {$h."$($_.Name)" = $_.Value} -End {$h}
@@ -161,5 +162,4 @@ foreach ($rf in $reqFiles) {
 }
 
 # launch Initialize-WinTerminal.ps1
-Set-Location "$scriptPath"
-. .\Initialize-WinTerminal.ps1
+Start-Process powershell -ArgumentList "-NoLogo -NoProfile -File .\Initialize-WinTerminal.ps1" -WorkingDirectory "$scriptPath"
