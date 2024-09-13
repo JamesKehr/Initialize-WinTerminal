@@ -1,0 +1,10 @@
+[{
+    "URI": "https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/Update-WingetApps.ps1",
+    "Path": ".",
+    "FileName": "Update-WingetApps.ps1"
+},
+{
+    "URI": "https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/Update-WingetApps.ps1",
+    "Path": ".\\lib",
+    "FileName": "Update-WingetApps.ps1"
+}]
