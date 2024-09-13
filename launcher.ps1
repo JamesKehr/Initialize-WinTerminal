@@ -127,7 +127,13 @@ function Get-WebFile
     return $OutFile
 }
 
-
+# find the script path, use PWD as the backup
+if ( [string]::IsNullOrEmpty($PSScriptRoot) ) {
+    # set $PWD to scriptPath
+    $scriptPath = $PWD.Path
+} else {
+    $scriptPath = $PSScriptRoot
+}
 
 # make sure all the required files are present and try to download anything missing
 $fileList = Get-WebFile -URI 'https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/file.json' -Path "$PSScriptRoot" -FileName 'file.json'
@@ -136,8 +142,8 @@ foreach ($rf in $reqFiles) {
     # convert to hashtable
     $htRF = $rf.PSObject.Properties | ForEach-Object -Begin {$h = @{}} -Process {$h."$($_.Name)" = $_.Value} -End {$h}
 
-    # replace . in the path with $PSScriptroot
-    $htRF.Path = $htRF.Path -replace "\.", "$PSScriptRoot"
+    # replace . in the path with $scriptPath
+    $htRF.Path = $htRF.Path -replace "\.", "$scriptPath"
 
     if ( -NOT (Get-Item "$($htRF.Path)\$($htRF.FileName)" -EA SilentlyContinue) ) {
         Write-Verbose "Downloading a missing file. htRF:`n$($htRF | Format-List | Out-String)`n"
@@ -153,5 +159,5 @@ foreach ($rf in $reqFiles) {
 }
 
 # launch Initialize-WinTerminal.ps1
-Set-Location "$PSScriptRoot"
+Set-Location "$scriptPath"
 . .\Initialize-WinTerminal.ps1
