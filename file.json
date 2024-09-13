@@ -1,10 +1,15 @@
 [{
+    "URI": "https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/Initialize-WinTerminal.ps1",
+    "Path": ".",
+    "FileName": "Initialize-WinTerminal.ps1"
+},
+{
     "URI": "https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/Update-WingetApps.ps1",
     "Path": ".",
     "FileName": "Update-WingetApps.ps1"
 },
 {
-    "URI": "https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/Update-WingetApps.ps1",
+    "URI": "https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/lib/libFunc.ps1",
     "Path": ".\\lib",
-    "FileName": "Update-WingetApps.ps1"
+    "FileName": "lib/libFunc.ps1"
 }]
