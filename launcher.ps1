@@ -130,10 +130,12 @@ function Get-WebFile
 # find the script path, use PWD as the backup
 if ( [string]::IsNullOrEmpty($PSScriptRoot) ) {
     # set $PWD to scriptPath
-    $scriptPath = $PWD.Path
+    $script:scriptPath = $PWD.Path
 } else {
-    $scriptPath = $PSScriptRoot
+    $script:scriptPath = $PSScriptRoot
 }
+
+Write-Verbose "scriptPath: $scriptPath"
 
 # make sure all the required files are present and try to download anything missing
 $fileList = Get-WebFile -URI 'https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/file.json' -Path "$PSScriptRoot" -FileName 'file.json'
