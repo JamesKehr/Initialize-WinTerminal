@@ -156,7 +156,7 @@ if (-NOT $wingetFnd) {
 } else {
     # make sure winget is up-to-date
     # get the latest release version
-    [version]$wingetLatest = Find-GitHubLatestVersion $wingetRepo 
+    [version]$wingetLatest = Find-GitHubLatestVersion -Owner $wingetOwner -Repo $wingetRepo
 
     # get the current winget version
     $WingetPath = Find-WinGet
