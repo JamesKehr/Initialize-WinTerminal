@@ -33,9 +33,28 @@ $VCLibsURI = 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx'
 # load the common functions
 . "$PSScriptRoot\lib\libFunc.ps1"
 
+# checks for WS2022 and updates permissions
+function Update-PermissionsWS2022 {
+    [CmdletBinding()]
+    param (
+        [Parameter()]
+        [string]
+        $WingetPath
+    )
+    # WS2022 build number
+    $22Build = 20348
+
+    # get the OS build
+    $osBuild = [System.Environment]::OSVersion.Version.Build
+
+    # update permissions when WS2022
+    if ($osBuild -eq $22Build) {
+        TAKEOWN /F "$WingetPath" /R /A /D Y *> $null
+        ICACLS "$WingetPath" /grant Administrators:F /T *> $null
+    }
+}
 
 # searches the local system for winget
-
 function Find-WinGet {
     $wingetFnd = Get-Command winget.exe -EA SilentlyContinue
 
@@ -64,7 +83,6 @@ function Find-WinGet {
 
 
 # installs or updates winget
-
 function Install-Winget {
     # install winget
     $wingetOwner = 'microsoft'
@@ -101,12 +119,12 @@ function Install-Winget {
     # get the updated winget path
     $WingetPath = Find-WinGet
 
-    # fix potential file permissions for server
-    # TO-DO: Detect Server
-    if ($WingetPath) {
-        TAKEOWN /F "$WingetPath" /R /A /D Y *> $null
-        ICACLS "$WingetPath" /grant Administrators:F /T *> $null
+    # update permissions on WS2022
+    $wingetDir = Split-Path $WingetPath -Parent
+    if ($wingetDir) {
+        Update-PermissionsWS2022 $wingetDir
     }
+
 }
 
 #endregion FUNCTIONS
@@ -156,13 +174,15 @@ if (-NOT $wingetFnd) {
 } else {
     # make sure winget is up-to-date
     # get the latest release version
-    [version]$wingetLatest = Find-GitHubLatestVersion -Owner $wingetOwner -Repo $wingetRepo
+    [version]$wingetLatest = Find-GitHubLatestVersion -Owner $wingetOwner -Repo $wingetRepo 
 
     # get the current winget version
     $WingetPath = Find-WinGet
 
     if ( $WingetPath -notin $ENV:PATH.Split(';') ) { $ENV:PATH += ";$WingetPath" }
-    [version]$wingetCurrent = winget --version | Select-String -Pattern "^.*(?<ver>\d{1,4\.\d{1,4}\.\d{1,6}).*$" | ForEach-Object {$_.Matches.Groups[1].Value}
+    [version]$wingetCurrent = winget --version | Select-String -Pattern "(?<ver>\d{1,4}\.\d{1,4}\.\d{1,6})" | ForEach-Object {$_.Matches.Groups[1].Value}
+
+    Write-Verbose "Local version: $($wingetCurrent); Online version: $($wingetLatest)"
 
     # update if there is a newer version
     if ($wingetLatest -gt $wingetCurrent) {
@@ -175,8 +195,12 @@ if (-NOT $wingetFnd) {
 # make sure winget is in the path
 $WingetPath = Find-WinGet
 if ( $WingetPath -notin $ENV:PATH.Split(';') ) { $ENV:PATH += ";$WingetPath" }
-
-
+    
+# update permissions on WS2022
+$wingetDir = Split-Path $WingetPath -Parent
+if ($wingetDir) {
+    Update-PermissionsWS2022 $wingetDir
+}
 
 # update applications using winget
 winget upgrade --all --force --accept-package-agreements --accept-source-agreements *> .\winget.log 
