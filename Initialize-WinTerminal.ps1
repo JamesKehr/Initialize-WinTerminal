@@ -104,23 +104,24 @@ function Install-Font {
         $Path
     )
 
+    Write-Verbose "Install-Font - Path: $Path"
     # load the assembly 
     if ( -NOT ([appdomain]::currentdomain.getassemblies() | Where-Object {$_ -match "System.Drawing"})) {
         Add-Type -AssemblyName System.Drawing
     }
 
     # font directory
-    $fontDir = [System.Environment]::GetFolderPath("Fonts")
+    #$fontDir = [System.Environment]::GetFolderPath("Fonts")
     #$fontReg = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
 
     # create a font collection to read the font family name later on
     $FontCollection = [System.Drawing.Text.PrivateFontCollection]::new()
 
     # get a list of installed font families
-    $installedFonts = Get-InstalledFonts
+    #$installedFonts = Get-InstalledFonts
 
     # get a list of installed ttf and otf fonts
-    $installedFontFiles = Get-ChildItem -Path $fontDir -Include *.otf, *.ttf -File
+    #$installedFontFiles = Get-ChildItem -Path $fontDir -Include *.otf, *.ttf -File
     
     # stuff needed for CopyHere method
     $FONTS = 0x14
@@ -129,31 +130,33 @@ function Install-Font {
     $objFolder = $objShell.Namespace($FONTS)
 
     # get the fonts from the path
-    # remove duplication, preferring OTF over TTF fonts
-    [System.Collections.Generic.List[Object]]$fonts = Get-ChildItem -Path $Path -Include *.otf -Recurse -File
-    Get-ChildItem -Path $Path -Include *.ttf -Recurse -File | & {process {
+    # only use static TTF fonts
+    [System.Collections.Generic.List[Object]]$fonts = Get-ChildItem -Path "$Path\ttf\" -Filter "*.ttf" -File
+    Write-Verbose "Install-Font - Fonts:`n$($fonts -join "`n")"
+
+    <#Get-ChildItem -Path $Path -Include  -File | & {process {
         if ($_.BaseName -notin $fonts.BaseName) {
             $fonts.Add($_)
         }
-    }}
+    }}#>
 
     foreach ($font in $fonts) {
         # get font details
-        $null = $FontCollection.AddFontFile($font.fullname)
+        $null = $FontCollection.AddFontFile("$($font.fullname)")
         $currentFont = $FontCollection.Families[-1].Name
         Write-Verbose "Processing: $currentFont"
         #Write-Verbose "FontCollection:$($c=0; $FontCollection.Families | % {"`n$c`t: $($_.Name)"; $c++})"
         
-        # use a standard copy to update the existing font if it already exists
+        <# use a standard copy to update the existing font if it already exists
         if ($currentFont -in $installedFonts -or $font.Name -in $installedFontFiles.Name) {
             Write-Verbose "Updating font."
-            $null = Copy-Item -Path $font -Destination $fontDir -Force -Confirm:$false
+            $null = Copy-Item -Path "$($font.FullName)" -Destination $fontDir -Force -Confirm:$false
         # use CopyHere if the font is not found
-        } else {
+        } else {#>
             Write-Verbose "Installing font."
             $CopyFlag = [String]::Format("{0:x}", $CopyOptions);
             $objFolder.CopyHere($font.fullname,$CopyFlag)
-        }
+        #}
     }
 }
 
@@ -194,7 +197,7 @@ $repoCCNFOwner = "microsoft"
 $repoCCNFRepo = "cascadia-code"
 
 # name of the preferred pretty font, CaskaydiaCove NF
-$fontName = "Cascadia Mono NF SemiLight"
+$fontName = "Cascadia Code NF"
 
 # the zip file where CC NF is in
 $fontVer = Find-GitHubLatestVersion -Owner $repoCCNFOwner -Repo $repoCCNFRepo
@@ -315,7 +318,7 @@ if ($fontName -notin (Get-InstalledFonts))
         Expand-Archive -Path $ccnfZip -DestinationPath $extractPath -Force -EA Stop
 
         # install fonts
-        Install-Font "$extractPath" -EA Stop
+        Install-Font "$extractPath" -EA SilentlyContinue
 
         #Start-Sleep 10
     } catch {
@@ -377,13 +380,17 @@ foreach ($line in $profileLines)
 }
 
 # assume WT is installed at this point
-# launch WT once to make sure settings.json is generated
-Write-Verbose "Launching pwsh in Terminal to make sure the profile has been created."
-Start-Process wt -ArgumentList "-p PowerShell" -WindowStyle Minimized
-Start-Sleep 10
-# hopefull this closes the correct terminal...
-$currPwsh = Get-Process -Id $PID
-Get-Process WindowsTerminal | Where-Object { $_.Id -ne $currPwsh.Parent.Id } | Stop-Process -Force
+# only do this if WT is not currently running
+$wtRunning = Get-Process WindowsTerminal -EA SilentlyContinue
+if ( -NOT $wtRunning ) {
+    # launch WT once to make sure settings.json is generated
+    Write-Verbose "Launching pwsh in Terminal to make sure the profile has been created."
+    Start-Process wt -ArgumentList "-p PowerShell" -WindowStyle Minimized
+    Start-Sleep 10
+    # hopefull this closes the correct terminal...
+    $currPwsh = Get-Process -Id $PID
+    Get-Process WindowsTerminal | Where-Object { $_.Id -ne $currPwsh.Parent.Id } | Stop-Process -Force
+}
 
 Write-Verbose "Get the Terminal config file."
 $appxPack = Get-AppxPackage -Name "Microsoft.WindowsTerminal" -EA SilentlyContinue
