@@ -205,7 +205,7 @@ $fontFile = "CascadiaCode-$($fontVer.Major).$($fontVer.Minor).zip"
 
 # npcap URL
 # Wireshark required npcap
-$npcapURL = 'https://npcap.com/dist/npcap-1.79.exe'
+$npcapURL = 'https://npcap.com/dist/npcap-1.80.exe'
 
 
 
