@@ -1,7 +1,10 @@
+# grabs the required files and saves them to C:\Temp, then starts the cusomization process
+#requires -RunAsAdministrator
+#requires -Version 5.1
+
 # Downloads a file from the Internet.
 # Returns the full path to the download.
-function Get-WebFile
-{
+function Get-WebFile {
     param ( 
         [string]$URI,
         [string]$Path,
@@ -127,18 +130,22 @@ function Get-WebFile
     return $OutFile
 }
 
-# find the script path, use PWD as the backup
+<# find the script path, use PWD as the backup
 if ( [string]::IsNullOrEmpty($PSScriptRoot) ) {
     # set $PWD to scriptPath
     $script:scriptPath = $PWD.Path
 } else {
     $script:scriptPath = $PSScriptRoot
 }
+#>
 
+# use a local temp file
+$script:scriptPath = "C:\Temp"
+$null = mkdir $script:scriptPath -Force -EA SilentlyContinue
 Write-Verbose "scriptPath: $scriptPath"
 
 # make sure all the required files are present and try to download anything missing
-[array]$reqFiles = Invoke-WebRequest 'https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/file.json' | ForEach-Object Content | ConvertFrom-Json
+[array]$reqFiles = Invoke-WebRequest 'https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/file.json' -UseBasicParsing | ForEach-Object Content | ConvertFrom-Json
 
 # loop through each required file
 foreach ($rf in $reqFiles) {
@@ -152,7 +159,7 @@ foreach ($rf in $reqFiles) {
         Write-Verbose "Downloading a missing file. htRF:`n$($htRF | Format-List | Out-String)`n"
         
         # download
-        $tryDL = $fileList = Get-WebFile @htRF
+        $tryDL = Get-WebFile @htRF
         if (-NOT $tryDL) {
             throw "Failed to download a required file."
         }

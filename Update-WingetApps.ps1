@@ -2,11 +2,47 @@
 param (
     [Parameter()]
     [string]
-    $updatePath = "C:\temp\updates"
+    $Path = "C:\temp"
 )
 
+Push-Location $Path
 
-### VARIABLES ###
+# turns out this is super easy. barely an inconvenience!
+# make sure NuGet is installed and updated
+$progressPreference = 'silentlyContinue'
+Write-Verbose "Update-WingetApps - Installing WinGet PowerShell module from PSGallery..."
+Write-Verbose "Update-WingetApps - Install NuGet"
+$currNuget = Get-PackageProvider NuGet
+$latestNuget = Find-PackageProvider NuGet
+if (-NOT $currNuget -or ($currNuget.Version -ne $latestNuget.Version)) {
+    $null = Install-PackageProvider -Name NuGet -Force -Confirm:$false
+}
+
+# install/update Microsoft.WinGet.Client
+$modName = 'Microsoft.WinGet.Client'
+$currWGMod = Get-Module -ListAvailable $modName
+$latestWGMod = Find-Module -Name $modName
+if (-NOT $currWGMod -or ($currWGMod.Version -ne $latestWGMod.Version)) {
+    $null = Install-Module -Name $modName -Force -Repository PSGallery 
+}
+
+# now use winget powershell to do all the work!
+Write-Verbose "Update-WingetApps - Using Repair-WinGetPackageManager cmdlet to bootstrap WinGet..."
+Repair-WinGetPackageManager -AllUsers -Latest 
+
+# update the path, just in case
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+
+# update applications using winget
+Write-Verbose "Update-WingetApps - Running winget. Saving log to: $Path\winget.log"
+winget upgrade --all --force --accept-package-agreements --accept-source-agreements *> .\winget.log 
+
+
+Pop-Location
+Write-Verbose "Update-WingetApps - Done."
+
+# for legacy purposes
+<### VARIABLES ###
 #region
 
 # make sure the download location is there
@@ -204,4 +240,4 @@ if ($wingetDir) {
 
 # update applications using winget
 winget upgrade --all --force --accept-package-agreements --accept-source-agreements *> .\winget.log 
-
+#>

@@ -274,7 +274,7 @@ $null = mkdir $savePath -EA SilentlyContinue
 try {
     Write-Verbose "Installing winget."
     Push-Location "$PSScriptRoot" 
-    .\Update-WingetApps.ps1 -updatePath $savePath -EA Stop
+    .\Update-WingetApps.ps1 -Path $savePath -EA Stop
 } catch {  
     throw "Failed to install Winget: $_"
 } finally {
@@ -329,16 +329,8 @@ if ($fontName -notin (Get-InstalledFonts))
 ## install modules ##
 
 $strCMD = @"
-    `$nugetVer = Get-PackageProvider -ListAvailable -EA SilentlyContinue | Where-Object Name -match "NuGet" | ForEach-Object { `$_.Version }
-    [version]`$minNugetVer = "3.0.0.1"
-    if (`$nugetVer -lt `$minNugetVer -or `$null -eq `$nugetVer)
-    {
-        Write-Verbose "Installing NuGet update."
-        `$null = Install-PackageProvider -Name NuGet -MinimumVersion `$minNugetVer -Force
-    }
-
-    # get module(s)
-    Install-Module -Name "$($pwshMods -join '","')" -Repository PSGallery -Scope CurrentUser -Force
+    # install module(s)
+    Install-PSResource -Name "$($pwshMods -join '","')" -Repository PSGallery -Scope CurrentUser -TrustRepository
 "@
 
 # do not encode the command as it gives some endpoint protect services a conniption fit
@@ -369,6 +361,8 @@ $pwshProfilePath = pwsh -NoLogo -NoProfile -Command { $PROFILE }
 
 $pwshProfile = Get-Content $pwshProfilePath -EA SilentlyContinue
 
+Write-Verbose "pwshProfile: $pwshProfile"
+
 if (-NOT (Test-path $pwshProfilePath)) { $null = New-Item $pwshProfilePath -ItemType File -Force }
 
 foreach ($line in $profileLines)
@@ -387,9 +381,15 @@ if ( -NOT $wtRunning ) {
     Write-Verbose "Launching pwsh in Terminal to make sure the profile has been created."
     Start-Process wt -ArgumentList "-p PowerShell" -WindowStyle Minimized
     Start-Sleep 10
-    # hopefull this closes the correct terminal...
-    $currPwsh = Get-Process -Id $PID
-    Get-Process WindowsTerminal | Where-Object { $_.Id -ne $currPwsh.Parent.Id } | Stop-Process -Force
+    Get-Process WindowsTerminal | Stop-Process -Force
+} else {
+    Write-Verbose "Windows Terminal is running. Opening a new window to generate the PowerShell profile."
+    [array]$currWT = Get-Process WindowsTerminal
+    wt --profile PowerShell
+    Start-Sleep 10
+    [array]$newWT = Get-Process WindowsTerminal
+    $stopWT = Compare-Object $currWT.Id $newWT.Id -PassThru | ForEach-Object {$_}
+    Stop-Process -Id $stopWT
 }
 
 Write-Verbose "Get the Terminal config file."
@@ -400,27 +400,24 @@ if ($gDemo.IsPresent) { Write-Debug "Demo mode engaged. (8)" }
 
 # export settings.json
 # clean up comment lines to prevent issues with older JSON parsers (looking at you Windows PowerShell)
-try 
-{
+try {
     $wtJSON =  Get-Content "$wtAppData\settings.json" -EA Stop | Where-Object { $_ -notmatch "^.*//.*$" -and -NOT [string]::IsNullOrEmpty($_)} | ConvertFrom-Json  
     Write-Verbose "Terminal settings have been imported."  
-}
-catch 
-{
+} catch {
     return (Write-Error "Failed to update Windows Terminal settings." -EA Stop)
 }
 
 # change the font for PowerShell
-if ($null -ne $wtJSON.profiles.list.font.face)
-{
+if ($null -ne $wtJSON.profiles.list.font.face) {
     Write-Verbose "Changing pwsh font (1)."
     $wtJSON.profiles.list | Where-Object { $_.Name -eq "PowerShell" } | ForEach-Object { $_.Font.Face = $fontName }
-}
-else 
-{
+} else {
     Write-Verbose "Changing pwsh font (2)."
     $pwshProfile = $wtJSON.profiles.list | Where-Object { $_.Name -eq "PowerShell" }
-    $pwshProfile | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{face="$fontName"})
+    if ($pwshProfile) {
+        $pwshProfile | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{face="$fontName"})
+    }
+    
 }
 
 if ($gDemo.IsPresent) { Write-Debug "Demo mode engaged. (9)" }
@@ -429,8 +426,7 @@ if ($gDemo.IsPresent) { Write-Debug "Demo mode engaged. (9)" }
 Write-Verbose "Set pwsh as the default Terminal profile."
 $pwshGUID = $wtJSON.profiles.list | Where-Object Name -eq "PowerShell" | ForEach-Object { $_.guid }
 
-if ($pwshGUID)
-{
+if ($pwshGUID) {
     $defaultGUID = $wtJSON.defaultProfile
 
     if ($defaultGUID -ne $pwshGUID)
@@ -530,6 +526,11 @@ if ($gDemo.IsPresent) {
     # Demo: Enable File and Printer Sharing on the firewall for Private
     Get-NetFirewallRule -DisplayGroup "File and Printer Sharing" | Where-Object { $_.Profile -eq "Private" -or $_.Profile -eq "Any" } | Enable-NetFirewallRule
 }
+
+# remove all the Edge startup nonsense
+Push-Location "$PSScriptRoot"
+.\Remove-EdgeStartup.ps1
+Pop-Location
 
 
 # update and reboot
