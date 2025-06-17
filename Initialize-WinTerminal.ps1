@@ -244,15 +244,46 @@ if ($gDemo.IsPresent) {
 }
 
 
+# list of apps to remove
+$removeApps =   "Clipchamp.Clipchamp",
+                "Microsoft.BingNews",
+                "Microsoft.BingWeather",
+                "Microsoft.Edge.GameAssist",
+                "Microsoft.GamingApp",
+                "Microsoft.GetHelp",
+                "Microsoft.MicrosoftOfficeHub",
+                "Microsoft.MicrosoftSolitaireCollection",
+                "Microsoft.MicrosoftStickyNotes",
+                "Microsoft.People",
+                "Microsoft.PowerAutomateDesktop",
+                "Microsoft.Todos",
+                "Microsoft.WindowsCamera",
+                "microsoft.windowscommunicationsapps",
+                "Microsoft.WindowsMaps",
+                "Microsoft.WindowsSoundRecorder",
+                "crosoft.Xbox.TCUI",
+                "Microsoft.XboxGameOverlay",
+                "Microsoft.XboxGamingOverlay",
+                "Microsoft.XboxSpeechToTextOverlay",
+                "Microsoft.YourPhone",
+                "Microsoft.ZeVideo",
+                "Microsoft.Getarted",
+                "Microsoft.XboxIdentityProvider",
+                "Microsoft.Copilot",
+                "Microsoft.ZuneMic"
+
 #endregion CONSTANTS
+### MAIN ###",
 
-
-### MAIN ###
-
-<# only works for Windows right now
-if ( -NOT $IsWindows ) {
-    return (Write-Error "Only Windows is supported at the moment." -EA Stop)
+<# only works for Windows right no
+ite-Error "Only Windows is supported at the moment." -EA Stop)
 }#>
+
+# prompt for computer name
+$compy = Read-Host "Enter the computer name or input nothing and press Enter to bypass computer rename"
+if (-NOT [string]::IsNullOrEmpty($compy) -and -NOT [string]::IsNullOrWhiteSpace($compy)) {
+    Rename-Computer -NewName $compy -Force
+}
 
 if ($gDemo.IsPresent) { Write-Debug "Demo mode engaged. (2)" }
 
@@ -532,6 +563,20 @@ Push-Location "$PSScriptRoot"
 .\Remove-EdgeStartup.ps1
 Pop-Location
 
+
+# remove apps
+$allApps = Get-AppxPackage
+$allUsersApps = Get-AppxPackage -AllUsers
+
+foreach ($app in $removeApps) {
+    if ($app -in $allApps.Name) {
+        Get-AppxPackage $app | Remove-AppxPackage -Confirm:$false
+    }
+
+    if ($app -in $allUsersApps.Name) {
+        Get-AppxPackage $app -AllUsers | Remove-AppxPackage -Confirm:$false -AllUsers
+    }
+}
 
 # update and reboot
 Install-PackageProvider -Name NuGet -Force
