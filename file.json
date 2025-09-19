@@ -11,8 +11,9 @@
 {
     "URI": "https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/main/lib/libFunc.ps1",
     "Path": ".\\lib",
-    "FileName": "libFunc.ps1",
-
+    "FileName": "libFunc.ps1"
+},
+{
     "URI": "https://raw.githubusercontent.com/JamesKehr/Initialize-WinTerminal/refs/heads/main/Remove-EdgeStartup.ps1",
     "Path": ".",
     "FileName": "Remove-EdgeStartup.ps1"
